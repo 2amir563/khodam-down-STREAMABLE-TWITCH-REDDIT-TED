@@ -1,11 +1,10 @@
 #!/bin/bash
-# Telegram Media Downloader Bot - Complete Installer (V20 - Ultra-Light/Performance)
-# Designed for successful downloading from various sites.
+# Telegram Media Downloader Bot - Complete Installer (V21 - Title/URL in Caption)
 
 set -e # Exit immediately if a command exits with a non-zero status.
 
 echo "=============================================="
-echo "🤖 Telegram Media Downloader Bot - V20 (Ultra-Light Installation)"
+echo "🤖 Telegram Media Downloader Bot - V21 (Caption Customization)"
 echo "=============================================="
 echo ""
 
@@ -87,14 +86,14 @@ USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 ENVEOF
 
 # ============================================
-# STEP 5: Create Bot File (bot.py - V20 Ultra-Light - English Prompts)
+# STEP 5: Create Bot File (bot.py - V21 - Customized Caption)
 # ============================================
-print_status "Creating main bot file (bot.py - V20)..."
+print_status "Creating main bot file (bot.py - V21)..."
 
 cat > bot.py << 'PYEOF'
 #!/usr/bin/env python3
 """
-Telegram Media Downloader Bot - V20 (Ultra-Light - Core Functionality Only)
+Telegram Media Downloader Bot - V21 (Ultra-Light - Title/URL in Caption)
 """
 
 import os
@@ -103,6 +102,7 @@ import logging
 import subprocess
 import asyncio
 import re
+import json
 from pathlib import Path
 from datetime import datetime
 from urllib.parse import urlparse, unquote
@@ -162,10 +162,41 @@ def format_size(bytes_val):
     except:
         return "Unknown"
 
+async def get_video_info(url):
+    """Fetch video title using yt-dlp --dump-json"""
+    cmd = [
+        "python3", "-m", "yt_dlp",
+        "--dump-json",
+        "--skip-download",
+        "--no-playlist",
+        "--ignore-errors",
+        "--user-agent", USER_AGENT,
+        url
+    ]
+    cookies_file = Path(os.getcwd()) / "cookies" / "cookies.txt"
+    if cookies_file.exists():
+        cmd.extend(["--cookies", str(cookies_file)])
+        
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=30) 
+        
+        if process.returncode == 0:
+            info = json.loads(stdout.decode('utf-8'))
+            return info.get('title', 'N/A')
+        
+    except Exception as e:
+        logger.error(f"Error fetching video info: {e}")
+        
+    return "N/A" # Return N/A if info fetching fails
+
 async def download_video(url, output_path):
-    """Core download logic (Optimized V19 settings retained for stability)"""
+    """Core download logic"""
     
-    # Core stable format for MP4/Best quality
     download_format = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best"
     
     cmd = [
@@ -177,11 +208,9 @@ async def download_video(url, output_path):
         "--no-playlist",
         "--concurrent-fragments", "4",
         "--limit-rate", "10M",
-        # V19 Speed Optimization
         "--retries", "5",               
         "--fragment-retries", "5",      
         "--buffer-size", "64K",         
-        # Stable Options
         "--user-agent", USER_AGENT, 
         "--no-check-certificate", 
         "--referer", "https://google.com/",
@@ -190,7 +219,6 @@ async def download_video(url, output_path):
         url
     ]
     
-    # Check for cookies in the designated path
     cookies_file = Path(os.getcwd()) / "cookies" / "cookies.txt"
     if cookies_file.exists():
         cmd.extend(["--cookies", str(cookies_file)])
@@ -201,13 +229,11 @@ async def download_video(url, output_path):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
         )
-        # Faster failure on weak servers
         stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=480) 
         
         if process.returncode == 0:
             return True, "Success"
         else:
-            # V20: Simple failure message for light code
             return False, f"Download failed: Check URL, Access, or Geo-Block."
             
     except asyncio.TimeoutError:
@@ -218,37 +244,41 @@ async def download_video(url, output_path):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command"""
     welcome = f"""
-🤖 *UNIVERSAL Media Downloader Bot - V20 (Ultra-Light)*
+🤖 *UNIVERSAL Media Downloader Bot - V21 (Custom Caption)*
 
 📝 *How to Use:*
 1. Send any media URL.
-2. The bot will download and send the file.
+2. The bot will download and send the file with the video title in the caption.
 """
     await update.message.reply_text(welcome, parse_mode=ParseMode.MARKDOWN)
 
 async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle URL messages"""
-    url = clean_url(update.message.text)
+    original_url = update.message.text
+    url = clean_url(original_url)
     
     if not url:
         await update.message.reply_text("❌ *Invalid URL*", parse_mode=ParseMode.MARKDOWN)
         return
     
+    # 1. Fetch Title (New step)
+    msg = await update.message.reply_text(f"🔗 *Processing URL...*\n\nFetching video details...", parse_mode=ParseMode.MARKDOWN)
+    video_title = await get_video_info(url)
+    
+    # Extract site name for filename
     try:
         parsed = urlparse(url)
         site = parsed.netloc.split('.')[-2] if parsed.netloc.count('.') >= 2 else parsed.netloc.split('.')[0]
         site = site.replace('www.', '').split(':')[0].upper()
     except:
         site = "UNKNOWN"
-    
-    msg = await update.message.reply_text(f"🔗 *Processing URL* from site: *{site}*", parse_mode=ParseMode.MARKDOWN)
+        
+    await msg.edit_text(f"📥 *Downloading...* (Title: {video_title[:50]}...)", parse_mode=ParseMode.MARKDOWN)
     
     # Generate filename
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{site}_{timestamp}"
     output_template = f"downloads/{filename}.%(ext)s"
-    
-    await msg.edit_text(f"📥 *Downloading...* (Site: {site})", parse_mode=ParseMode.MARKDOWN)
     
     success, result = await download_video(url, output_template)
     
@@ -267,7 +297,6 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_path = downloaded_files[0]
     file_size = file_path.stat().st_size
     
-    # Size check
     if file_size > (MAX_SIZE_MB * 1024 * 1024):
         file_path.unlink() 
         await msg.edit_text(f"❌ *File size exceeds limit:* {format_size(file_size)}", parse_mode=ParseMode.MARKDOWN)
@@ -278,17 +307,19 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         with open(file_path, 'rb') as file:
             file_ext = file_path.suffix.lower()
+            
+            # 2 & 3. Custom Caption Format
             caption_text = (
-                f"✅ *Download Complete!*\n\n"
-                f"Site: {site}\n"
+                f"**{video_title}**\n\n"
+                f"✅ Download Complete!\n"
                 f"Size: {format_size(file_size)}\n"
-                f"Auto-deleted in {DELETE_AFTER} minutes"
+                f"Original URL: [Link]({url})"
             )
             
             # Simplified media type detection
             if file_ext in ['.mp3', '.m4a', '.wav']:
                 await update.message.reply_audio(audio=file, caption=caption_text, parse_mode=ParseMode.MARKDOWN)
-            else: # Default to video (covers mp4, webm, etc.)
+            else: 
                 await update.message.reply_video(
                     video=file, 
                     caption=caption_text, 
@@ -378,19 +409,17 @@ sleep 3
 # ============================================
 echo ""
 echo "================================================"
-echo "🎉 Installation Complete (V20 - Ultra-Light)"
+echo "🎉 Installation Complete (V21 - Custom Caption)"
 echo "================================================"
-echo "💡 Your bot is running with minimal code and resource consumption."
+echo "💡 Your bot is now running and will include the video title and URL in the caption."
 echo ""
 echo "⚙️ Control Commands:"
 echo "------------------------------------------------"
 echo "A) Service Status:"
 echo "   systemctl status telegram-media-bot"
-echo "B) Stop Bot:"
-echo "   systemctl stop telegram-media-bot"
-echo "C) Restart Bot:"
+echo "B) Restart Bot:"
 echo "   systemctl restart telegram-media-bot"
-echo "D) Place Cookies (for login/access errors):"
+echo "C) Place Cookies (for login/access errors):"
 echo "   /opt/telegram-media-bot/cookies/cookies.txt"
 echo "------------------------------------------------"
 echo "================================================"
